@@ -1,0 +1,9 @@
+torch
+torchvision
+pillow
+numpy
+albumentations
+tqdm
+tensorboard
+onnx
+onnxruntime

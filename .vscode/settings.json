@@ -1,0 +1,44 @@
+{
+    // Code spell checker (add using add word to workspace)
+    "cSpell.words": [
+        "AARRGGBB",
+        "Adwaita",
+        "bytesize",
+        "calcsize",
+        "DCMAKE",
+        "DEBUGHELPER",
+        "Dont",
+        "DONTNEED",
+        "FADV",
+        "fadvise",
+        "fdatasync",
+        "frombuffer",
+        "gridline",
+        "Istrate",
+        "libqxcb",
+        "libxxhash",
+        "Liviu",
+        "longlongformat",
+        "lupdate",
+        "Movero",
+        "NOREUSE",
+        "NTFS",
+        "qgetenv",
+        "qproperty",
+        "qputenv",
+        "qresource",
+        "qtbase",
+        "sess",
+        "signum",
+        "smplayer",
+        "socat",
+        "syscall",
+        "tmpfs",
+        "unflushed",
+        "unpolish",
+        "utimensat"
+    ],
+    "Lua.diagnostics.globals": [
+        "mp"
+    ]
+}
