@@ -97,13 +97,13 @@ mp.register_event("file-loaded", function()
     if path:lower():find(TRIGGER_KEYWORD) then
         ai_enabled = true
 		OSD_ai_message("Rotation: ACTIVE (Keyword detected)", 3000)
-		print("Tag detected in filename. Starting server...")
+		print("\nTag detected in filename. Starting server...")
 	else
-		print("[AI] No keyword found in filename. Script staying idle.")
+		print("\nNo keyword found in filename. Script staying idle.")
 	end
 
 	-- Check if the video has rotation set in INI file created by SMplayer
-	print("Requesting rotation for: " .. path)
+	print("\nRequesting rotation for: " .. path)
 
 	mp.command_native_async({
 		name = "subprocess",

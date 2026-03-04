@@ -2,9 +2,10 @@
 import sys, site, os
 
 # --- CONFIG ---
-SOCKET_PATH = "/tmp/mpv_ai_socket"
-MODEL_PATH = "/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/orientation_model_v2_0.9882.onnx"
-VENV_PATH = '/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/env/lib/python3.13/site-packages'
+SOCKET_PATH = '/tmp/mpv_ai_socket'
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(SCRIPT_DIR, 'orientation_model_v2_0.9882.onnx')
+VENV_PATH = os.path.join(SCRIPT_DIR, 'env/lib/python3.13/site-packages')
 INI_BASE_PATH = os.path.expanduser("~/.config/smplayer/file_settings/")
 site.addsitedir(VENV_PATH)
 
