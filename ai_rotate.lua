@@ -1,4 +1,18 @@
 
+-- Optimization: Since the AI is seeing the filtered frames, the Letterboxing logic 
+-- in ai_listener.py is now even more important. When you rotate a 16:9 video 90 degrees, 
+-- it becomes a thin 9:16 vertical sliver. The letterboxing ensures the AI still sees 
+-- that thin sliver centered in a 384x384 square, rather than a distorted, stretched version.
+
+-- Case A: The AI sees the video is sideways (90°) and your current rotation is 0. 
+-- It applies 90. The video looks correct. The next frame the AI sees is upright (IDX 0), so it stays at 90.
+
+-- Case B (The Flip): The person flips the camera while you are already at 90°. 
+-- The AI now sees a new sideways image. It sends IDX 1 (90°). The script adds 90 to your current 90, 
+-- moving you to 180°. The video is now corrected again.
+
+-- mpv --geometry=100%x100% --no-keepaspect-window --scripts=/path_to/mpv_ai_autorotate/ai_rotate.lua video.mkv
+
 -- Start the Python server automatically when mpv opens
 local python_path = "/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/env/bin/python3"
 -- local python_path = "/usr/bin/python3" -- or your venv path
@@ -6,7 +20,7 @@ local server_script = "/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/ai_listene
 -- local utils = require 'mp.utils'
 local rotations = { [0] = 0, [1] = 90, [2] = 180, [3] = 270 }
 local is_processing = false
-local ai_enabled = true -- Disabled by default
+local ai_enabled = false -- Disabled by default
 local TRIGGER_KEYWORD = "%rotate" -- Matches "rotate" in filename
 local current_angle = 0
 local osd_timer = nil
@@ -45,11 +59,13 @@ end
 
 
 local function apply_rotation(target_angle)
-	-- Clean up angles to 0-359 range
+    print("Applying rotation: " .. target_angle)
+    if not target_angle then
+        return
+    end
+	-- Clean up angles to 0-360 range
 	target_angle = target_angle % 360
-	-- if target_angle == 360 then
-	-- 	target_angle = 0
-	-- end
+    print("Applying rotation mod: " .. target_angle)
 
 	if target_angle == 0 then
 		mp.set_property("vf", "")
@@ -82,10 +98,10 @@ end
 -- Simple check to see if we should start the server
 local socket_check = os.execute("test -S /tmp/mpv_ai_socket")
 if socket_check ~= 0 then
-    mp.msg.info("Starting Python AI Server...")
+    print("Starting Python AI Server...")
     mp.command_native_async({name = "subprocess", args = {python_path, server_script}, detach = true})
 else
-    mp.msg.info("AI Server already running, connecting...")
+    print("AI Server already running, connecting...")
 end
 
 
@@ -142,10 +158,20 @@ end)
 local function check_orientation()
     -- Skip if AI is disabled, if we are already processing, OR if the video is paused
     if not ai_enabled or is_processing or mp.get_property_native("pause") then
+        -- print("Orientation check skipped")
         return
     end
 
     -- Grab the raw frame at its native resolution (no scaling arguments supported)
+    -- "video": you are telling mpv to capture the frame exactly as 
+    -- it comes out of the video decoder, but before most user-applied filters 
+    -- (like video-rotate or vf) are applied.
+    -- "window": Captures exactly what you see on your monitor 
+    -- (includes OSD, subtitles, and all rotations/filters)
+    -- "subtitles": Captures the video plus subtitles, but usually before color management.
+    -- Even though screenshot-raw "video" is documented to capture frames from the decoder, 
+    -- when you apply a rotation filter via vf, some hardware drivers or mpv configurations 
+    -- feed those filtered frames back into the capture buffer.
     local res = mp.command_native({"screenshot-raw", "video"})
 
     -- Ensure we got valid data before proceeding
@@ -156,6 +182,8 @@ local function check_orientation()
         if f then
             f:write(res.data)
             f:close()
+            print("---------------------------------")
+            print("Sending frame")
 
             -- Pass the native width/height to Python so it can calculate the stride
             local header = string.format("%08d%08d", res.w, res.h)
@@ -180,25 +208,23 @@ local function check_orientation()
                     if not ai_idx or ai_idx == 0 then return end
 
                     --local current_rot = mp.get_property_number("video-rotate", 0)
-                    -- Mapping AI index to the ABSOLUTE angle the video SHOULD be
-                    local target_angle = rotations[ai_idx]
+                    -- We map the AI result (0,1,2,3) to (0, 90, 180, 270)
+                    local adjustment = rotations[ai_idx]
 
-					print(string.format("Current rotation: %d, New rotation: %d", current_angle, target_angle))
-					apply_rotation(target_angle)
+                    -- Relative or absolute rotation
+                    -- If the model send the correction even after the filter is applied use absolute.
+                    -- If the model sends 0 after orientation has been corrected, use relative.
 
-                    -- ABSOLUTE CALCULATION:
-                    -- We determine exactly what the '0' point should be.
-                    -- If AI says it needs 270 while we are at 0, target is 270.
-                    -- If AI says it needs 0 while we are at 270, target is 270.
---                     local absolute_target = (current_rot + ai_needs) % 360
---
---                     -- Check if the rotation is already "in flight"
---                     -- (mpv sometimes takes a moment to update the property)
---                     if absolute_target ~= current_rot then
---                         print(string.format("AI says move %d. Current is %d. Setting Absolute Target: %d", ai_needs, current_rot, absolute_target))
---                         mp.set_property("video-rotate", absolute_target)
---                         update_rx_indicator(absolute_target)
---                     end
+                    -- CALCULATE RELATIVE CHANGE:
+                    -- We add the AI's requested turn to our current position
+                    local new_angle = (current_angle + adjustment) % 360
+
+                    print(string.format("Received rotation: %d, current rotation: %d", adjustment, current_angle))
+                    print("New rotation: " .. new_angle)
+
+                    if new_angle ~= current_angle then
+                        apply_rotation(new_angle)
+                    end
                 end
             end)
         else
@@ -209,6 +235,6 @@ end
 
 
 -- Run every n seconds
-mp.add_periodic_timer(4, check_orientation)
+mp.add_periodic_timer(5, check_orientation)
 
 

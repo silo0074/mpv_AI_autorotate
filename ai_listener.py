@@ -9,6 +9,8 @@ VENV_PATH = os.path.join(SCRIPT_DIR, 'env/lib/python3.13/site-packages')
 INI_BASE_PATH = os.path.expanduser("~/.config/smplayer/file_settings/")
 site.addsitedir(VENV_PATH)
 
+HISTORY_SIZE = 5
+
 import numpy as np
 import cv2
 import onnxruntime as ort
@@ -17,7 +19,7 @@ import struct
 import signal
 from collections import deque
 
-history = deque(maxlen=5)
+history = deque(maxlen = HISTORY_SIZE)
 
 # Define the options object
 # Create session options to use multiple threads (faster CPU processing)
@@ -138,20 +140,40 @@ def get_stable_prediction(header_bytes):
         else:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
+        # BETTER RESIZING (Letterbox instead of Cropping)
+        # This preserves the edges where the "doors and lamps" are.
+        target_size = 384
+        ratio = float(target_size) / max(h, w)
+        new_size = (int(w * ratio), int(h * ratio))
+        img_resized_temp = cv2.resize(img, new_size, interpolation=cv2.INTER_AREA)
+        
+        canvas = np.zeros((target_size, target_size, 3), dtype=np.uint8)
+        dx = (target_size - new_size[0]) // 2
+        dy = (target_size - new_size[1]) // 2
+        canvas[dy:dy+new_size[1], dx:dx+new_size[0]] = img_resized_temp
+
+        # Normalization (Directly from canvas)
+        # We don't need cv2.resize again because canvas is already 384x384
+        img_normalized = canvas.transpose(2, 0, 1).astype(np.float32) / 255.0
+        
+        mean = np.array([0.485, 0.456, 0.406]).reshape(3, 1, 1)
+        std = np.array([0.229, 0.224, 0.225]).reshape(3, 1, 1)
+        img_final = np.expand_dims((img_normalized - mean) / std, axis=0).astype(np.float32)
+
         # Center Crop to Square (to remove black bars/UI)
-        h_orig, w_orig = img.shape[:2]
-        min_side = min(h_orig, w_orig)
-        start_x = (w_orig - min_side) // 2
-        start_y = (h_orig - min_side) // 2
-        img_cropped = img[start_y:start_y+min_side, start_x:start_x+min_side]
+        # h_orig, w_orig = img.shape[:2]
+        # min_side = min(h_orig, w_orig)
+        # start_x = (w_orig - min_side) // 2
+        # start_y = (h_orig - min_side) // 2
+        # img_cropped = img[start_y:start_y+min_side, start_x:start_x+min_side]
 
         # Preprocessing
         # Mean/Std Normalization
-        img_resized = cv2.resize(img_cropped, (384, 384), interpolation=cv2.INTER_AREA).transpose(2, 0, 1).astype(np.float32) / 255.0
+        # img_resized = cv2.resize(img_final_input, (384, 384), interpolation=cv2.INTER_AREA).transpose(2, 0, 1).astype(np.float32) / 255.0
         # img_resized = cv2.resize(img_cropped, (384, 384)).transpose(2, 0, 1).astype(np.float32) / 255.0
-        mean = np.array([0.485, 0.456, 0.406]).reshape(3, 1, 1)
-        std = np.array([0.229, 0.224, 0.225]).reshape(3, 1, 1)
-        img_final = np.expand_dims((img_resized - mean) / std, axis=0).astype(np.float32)
+        # mean = np.array([0.485, 0.456, 0.406]).reshape(3, 1, 1)
+        # std = np.array([0.229, 0.224, 0.225]).reshape(3, 1, 1)
+        # img_final = np.expand_dims((img_resized - mean) / std, axis=0).astype(np.float32)
 
         # Inference
         raw_res = session.run(None, {input_name: img_final})[0][0]
@@ -163,27 +185,59 @@ def get_stable_prediction(header_bytes):
 
         # Stability Vote
         history.append(current_idx)
-        stable_idx = max(set(history), key=history.count)
 
         # Debugging info
-        print(f"\nSOCKET: Res: {w}x{h} | Channels: {channels} | AI IDX: {current_idx}")
-        print(f"\nSOCKET: Prediction Confidence: {conf}%")
+        print(f"\nSOCKET: history: {history}")
 
-        # Only return a rotation if the AI is 85% sure
-        if conf < 0.90:
-            print("\nSOCKET: Prediction Confidence under threshold. Returning.")
+        # Use the 'history' deque for a "Majority Vote"
+        # if len(history) < HISTORY_SIZE:
+        #     return "0" # Wait for more data before first rotation
+
+        # Find the most common opinion in the last 5 frames
+        stable_idx = max(set(history), key=history.count)
+
+        print(f"SOCKET: current_idx: {current_idx}, stable_idx: {stable_idx}")
+        print(f"SOCKET: Prediction confidence: {conf:.2f}")
+        # print(f"\n\nSOCKET: Res: {w}x{h} | Channels: {channels} | AI IDX: {current_idx}")
+
+        # If we just cleared history, allow a faster response for high confidence
+        if len(history) == 1 and conf > 0.91 and current_idx != 0:
+            print(f"SOCKET: Instant high-confidence detection: {current_idx}\n")
+            history.clear() # Clear again so we don't double-trigger
+            return str(current_idx)
+
+        # Use the 'history' deque for a "Majority Vote"
+        # If history isn't full, only return if we have a strong partial consensus (e.g., 2/2 or 3/3)
+        print("history.count(current_idx) " + str(history.count(current_idx)))
+        if len(history) >= 2 and history.count(current_idx) >= 2 and conf > 0.90:
+            # If all frames so far agree and confidence is high, don't make the user wait 25s
+            print(f"SOCKET: Early consensus reached ({len(history)}/{HISTORY_SIZE})\n")
+            if current_idx != 0: history.clear() 
+            return str(current_idx)
+
+        # Check if that opinion represents at least 80% (4/5) of the history
+        if history.count(stable_idx) < HISTORY_SIZE - 1:
+            # If the winner only has 3/5 votes, it's too shaky. Don't rotate yet.
+            print("SOCKET: Waiting for stable consensus...")
             return "0"
 
+        # Only return a rotation if the AI is 85% sure
+        if conf < 0.88:
+            print(f"SOCKET: Low confidence ({conf:.2f}). Ignoring.")
+            return "0"
+
+        print(f"SOCKET: returning IDX: {stable_idx}\n")
+        history.clear()
         return str(stable_idx)
 
     except Exception as e:
-        print(f"\nSOCKET: Prediction Error: {e}")
+        print(f"SOCKET: Prediction Error: {e}")
         return "0"
 
 
 # Cleanup on exit
 def cleanup(signum, frame):
-    print("\nSOCKET: AI Listener shutting down...")
+    print("SOCKET: AI Listener shutting down...\n")
     try:
         if os.path.exists(SOCKET_PATH):
             os.remove(SOCKET_PATH)
@@ -220,11 +274,11 @@ while True:
         if not data: continue
 
         msg = data.decode('utf-8', errors='ignore').strip()
-        print(f"\nSOCKET: Received message: {msg}")
+        # print(f"SOCKET: Received message: {msg}")
 
         # COMMAND TYPE 1: Hash Lookup (Starts with "PATH:")
         if msg.startswith("PATH:"):
-            print("\nSOCKET: Type 1 cmd")
+            print("SOCKET: Type 1 cmd")
             file_path = msg[5:]
             rotation = get_ini_rotation(file_path)
             conn.sendall(rotation.encode())
@@ -232,7 +286,7 @@ while True:
 
         # COMMAND TYPE 2: AI Orientation (The 16-byte numeric header)
         elif len(msg) == 16 and msg.isdigit():
-            print("\nSOCKET: Type 2 cmd")
+            # print("SOCKET: Type 2 cmd")
             result = get_stable_prediction(data)
             conn.sendall(result.encode())
 
@@ -242,7 +296,7 @@ while True:
         time.sleep(0.01)
 
     except Exception as e:
-        print(f"\nSOCKET: Socket Error: {e}")
+        print(f"SOCKET: Socket Error: {e}")
     finally:
-        print("\nSOCKET: conn.close")
+        # print("SOCKET: conn.close")
         conn.close()

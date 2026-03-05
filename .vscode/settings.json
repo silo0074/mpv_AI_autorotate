@@ -15,6 +15,8 @@
         "frombuffer",
         "gridline",
         "Istrate",
+        "keepaspect",
+        "letterboxing",
         "libqxcb",
         "libxxhash",
         "Liviu",
