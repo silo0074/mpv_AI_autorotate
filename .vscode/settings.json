@@ -3,8 +3,10 @@
     "cSpell.words": [
         "AARRGGBB",
         "Adwaita",
+        "autocrop",
         "bytesize",
         "calcsize",
+        "cropdetect",
         "DCMAKE",
         "DEBUGHELPER",
         "Dont",
@@ -16,6 +18,7 @@
         "gridline",
         "Istrate",
         "keepaspect",
+        "lavfi",
         "letterboxing",
         "libqxcb",
         "libxxhash",

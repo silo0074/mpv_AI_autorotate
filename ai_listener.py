@@ -94,6 +94,7 @@ def get_ini_rotation(filename):
 
     # Path is: base / first_char_of_hash / hash.ini
     ini_path = os.path.join(INI_BASE_PATH, h[0], f"{h}.ini")
+    print("SOCKET: INI path: " + ini_path)
 
     if os.path.exists(ini_path):
         with open(ini_path, "r") as f:
@@ -101,8 +102,10 @@ def get_ini_rotation(filename):
                 if line.startswith("rotate="):
                     # SMPlayer: 0=0, 1=90, 2=180, 3=270
                     val = line.strip().split("=")[1]
-                    mapping = {"0": "0", "1": "90", "2": "180", "3": "270"}
-                    return mapping.get(val, "0")
+                    return val
+                    # SMplayer doesn't do this mapping
+                    # mapping = {"0": "0", "1": "90", "2": "180", "3": "270"}
+                    # return mapping.get(val, "0")
     return "0"
 
 
@@ -282,7 +285,6 @@ while True:
             file_path = msg[5:]
             rotation = get_ini_rotation(file_path)
             conn.sendall(rotation.encode())
-
 
         # COMMAND TYPE 2: AI Orientation (The 16-byte numeric header)
         elif len(msg) == 16 and msg.isdigit():
