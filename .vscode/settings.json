@@ -15,6 +15,7 @@
         "fadvise",
         "fdatasync",
         "frombuffer",
+        "getpid",
         "gridline",
         "Istrate",
         "keepaspect",

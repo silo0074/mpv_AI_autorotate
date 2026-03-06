@@ -9,7 +9,7 @@ VENV_PATH = os.path.join(SCRIPT_DIR, 'env/lib/python3.13/site-packages')
 INI_BASE_PATH = os.path.expanduser("~/.config/smplayer/file_settings/")
 site.addsitedir(VENV_PATH)
 
-HISTORY_SIZE = 5
+HISTORY_SIZE = 3
 
 import numpy as np
 import cv2
@@ -19,7 +19,9 @@ import struct
 import signal
 from collections import deque
 
-history = deque(maxlen = HISTORY_SIZE)
+# history = deque(maxlen = HISTORY_SIZE)
+# Replace 'history = deque(...)' with a dictionary
+histories = {}
 
 # Define the options object
 # Create session options to use multiple threads (faster CPU processing)
@@ -111,12 +113,36 @@ def get_ini_rotation(filename):
 
 def get_stable_prediction(header_bytes):
     try:
-        header = header_bytes.decode('ascii').strip()
-        w = int(header[:8])
-        h = int(header[8:16])
+        # msg[:16] is always the 8-digit Width + 8-digit Height
+        w = int(msg[:8])
+        h = int(msg[8:16])
+        
+        # msg[16:] is everything else—in this case, the unique file path
+        frame_path = msg[16:].strip() 
 
-        with open("/tmp/mpv_frame.raw", "rb") as f:
-            raw_pixels = f.read()
+        if os.path.exists(frame_path):
+            with open(frame_path, "rb") as f:
+                raw_pixels = f.read()
+
+            # Cleanup the unique file so /tmp doesn't fill up
+            try:
+                os.remove(frame_path)
+            except:
+                pass
+
+        # header = header_bytes.decode('ascii').strip()
+        # w = int(header[:8])
+        # h = int(header[8:16])
+
+        # with open("/tmp/mpv_frame.raw", "rb") as f:
+        #     raw_pixels = f.read()
+
+        # Use the PID or filename as a unique key for this specific video instance
+        instance_id = os.path.basename(frame_path) 
+        if instance_id not in histories:
+            histories[instance_id] = deque(maxlen=HISTORY_SIZE)
+
+        inst_history = histories[instance_id]
 
         # DYNAMIC STRIDE CALCULATION
         # This works for any resolution (1080p, 4K, etc.)
@@ -187,39 +213,38 @@ def get_stable_prediction(header_bytes):
         conf = np.max(probs)
 
         # Stability Vote
-        history.append(current_idx)
+        inst_history.append(current_idx)
 
         # Debugging info
-        print(f"\nSOCKET: history: {history}")
+        print(f"\nSOCKET: history: {inst_history}")
 
         # Use the 'history' deque for a "Majority Vote"
-        # if len(history) < HISTORY_SIZE:
+        # if len(inst_history) < HISTORY_SIZE:
         #     return "0" # Wait for more data before first rotation
 
         # Find the most common opinion in the last 5 frames
-        stable_idx = max(set(history), key=history.count)
+        stable_idx = max(set(inst_history), key=inst_history.count)
 
         print(f"SOCKET: current_idx: {current_idx}, stable_idx: {stable_idx}")
         print(f"SOCKET: Prediction confidence: {conf:.2f}")
         # print(f"\n\nSOCKET: Res: {w}x{h} | Channels: {channels} | AI IDX: {current_idx}")
 
         # If we just cleared history, allow a faster response for high confidence
-        if len(history) == 1 and conf > 0.91 and current_idx != 0:
+        if len(inst_history) == 1 and conf > 0.91 and current_idx != 0:
             print(f"SOCKET: Instant high-confidence detection: {current_idx}\n")
-            history.clear() # Clear again so we don't double-trigger
+            inst_history.clear() # Clear again so we don't double-trigger
             return str(current_idx)
 
         # Use the 'history' deque for a "Majority Vote"
         # If history isn't full, only return if we have a strong partial consensus (e.g., 2/2 or 3/3)
-        print("history.count(current_idx) " + str(history.count(current_idx)))
-        if len(history) >= 2 and history.count(current_idx) >= 2 and conf > 0.90:
+        if len(inst_history) >= 2 and inst_history.count(current_idx) >= 2 and conf > 0.90:
             # If all frames so far agree and confidence is high, don't make the user wait 25s
-            print(f"SOCKET: Early consensus reached ({len(history)}/{HISTORY_SIZE})\n")
-            if current_idx != 0: history.clear() 
+            print(f"SOCKET: Early consensus reached ({len(inst_history)}/{HISTORY_SIZE})\n")
+            if current_idx != 0: inst_history.clear() 
             return str(current_idx)
 
         # Check if that opinion represents at least 80% (4/5) of the history
-        if history.count(stable_idx) < HISTORY_SIZE - 1:
+        if inst_history.count(stable_idx) < HISTORY_SIZE - 1:
             # If the winner only has 3/5 votes, it's too shaky. Don't rotate yet.
             print("SOCKET: Waiting for stable consensus...")
             return "0"
@@ -230,7 +255,8 @@ def get_stable_prediction(header_bytes):
             return "0"
 
         print(f"SOCKET: returning IDX: {stable_idx}\n")
-        history.clear()
+        # history.clear()
+        del histories[instance_id] # Clean up memory
         return str(stable_idx)
 
     except Exception as e:
@@ -277,7 +303,7 @@ while True:
         if not data: continue
 
         msg = data.decode('utf-8', errors='ignore').strip()
-        # print(f"SOCKET: Received message: {msg}")
+        print(f"\nSOCKET: Received message: {msg}")
 
         # COMMAND TYPE 1: Hash Lookup (Starts with "PATH:")
         if msg.startswith("PATH:"):
@@ -287,9 +313,9 @@ while True:
             conn.sendall(rotation.encode())
 
         # COMMAND TYPE 2: AI Orientation (The 16-byte numeric header)
-        elif len(msg) == 16 and msg.isdigit():
-            # print("SOCKET: Type 2 cmd")
-            result = get_stable_prediction(data)
+        elif len(msg) >= 16 and msg[:16].isdigit():
+            print("SOCKET: Type 2 cmd")
+            result = get_stable_prediction(msg)
             conn.sendall(result.encode())
 
         conn.shutdown(socket.SHUT_WR)
