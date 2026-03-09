@@ -1,21 +1,13 @@
 
--- Optimization: Since the AI is seeing the filtered frames, the Letterboxing logic 
--- in ai_listener.py is now even more important. When you rotate a 16:9 video 90 degrees, 
--- it becomes a thin 9:16 vertical sliver. The letterboxing ensures the AI still sees 
--- that thin sliver centered in a 384x384 square, rather than a distorted, stretched version.
-
--- Case A: The AI sees the video is sideways (90°) and your current rotation is 0. 
--- It applies 90. The video looks correct. The next frame the AI sees is upright (IDX 0), so it stays at 90.
-
--- Case B (The Flip): The person flips the camera while you are already at 90°. 
--- The AI now sees a new sideways image. It sends IDX 1 (90°). The script adds 90 to your current 90, 
--- moving you to 180°. The video is now corrected again.
-
--- SMplayer 25+ is buggy. After cropping or applying rotation the aspect ratio will be wrong.
+-------------------------------- NOTES ------------------------------------------------------
+-- SMplayer 25+ is buggy. After cropping or applying rotation, the aspect ratio will be wrong.
 -- Use version 24.5
 
 -- DEBUGGING:
 -- mpv --geometry=100%x100% --no-keepaspect-window --scripts=/path_to/mpv_ai_autorotate/ai_rotate.lua video.mkv
+---------------------------------------------------------------------------------------------
+APP_VERSION = "1.0.0"
+APP_NAME = "mpv AI Auto-Rotate"
 
 -- Start the Python server automatically when mpv opens
 local python_path = "/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/env/bin/python3"
@@ -35,6 +27,10 @@ local ini_rotation = false
 local mp = mp
 local utils = require 'mp.utils'
 -- mp.set_property("osd-ass-cc", "yes")
+
+local pid = utils.getpid()
+local temp_frame = "/tmp/mpv_frame_" .. pid .. ".raw"
+local socket_check = os.execute("test -S /tmp/mpv_ai_socket")
 
 
 local function OSD_display_filters()
@@ -311,20 +307,6 @@ local function sync_with_smplayer(path)
 end
 
 
--- FUNCTION TO START THE SERVER
--- Simple check to see if we should start the server
-local pid = utils.getpid()
-local temp_frame = "/tmp/mpv_frame_" .. pid .. ".raw"
-local socket_check = os.execute("test -S /tmp/mpv_ai_socket")
-
-if socket_check ~= 0 then
-    print("Starting Python AI Server...")
-    mp.command_native_async({name = "subprocess", args = {python_path, server_script}, detach = true})
-else
-    print("AI Server already running, connecting...")
-end
-
-
 local function has_trigger(path, keyword)
     local p = path:lower()
     local k = keyword:lower() -- keyword would be "%rotate"
@@ -346,52 +328,6 @@ local function has_trigger(path, keyword)
     end
     return false
 end
-
-
--- EVENT: file loaded
-mp.register_event("file-loaded", function()
-    video_path = mp.get_property("path") -- get file path
-
-    if has_trigger(video_path, TRIGGER_KEYWORD) then
-        ai_enabled = true
-        OSD_ai_message("Rotation ACTIVE (Keyword detected)", 3000)
-        print("Rotation ACTIVE (Keyword detected)")
-    else
-        print("No keyword found in filename.")
-    end
-
-    -- We search for the keyword and check what comes immediately after it
-    -- local start_idx, end_idx = video_path:lower():find(string.format("%%%s", TRIGGER_KEYWORD))
-
-    -- if start_idx then
-    --     -- Get the character immediately following the match
-    --     local following_char = video_path:sub(end_idx + 1, end_idx + 1)
-
-    --     -- Check if it's a comma, space, or the end of the string ("")
-    --     if following_char == "," or following_char == " " or following_char == "" or following_char == "]" then
-    --         ai_enabled = true
-    --         OSD_ai_message("Rotation: ACTIVE (Keyword detected)", 3000)
-    --         print("Rotation: ACTIVE (Keyword detected)")
-    --     else
-    --         print("Match found but ignored (likely 'rotated').")
-    --     end
-    -- else
-    --     print("No keyword found in filename.")
-    -- end
-
-    sync_with_smplayer(video_path)
-end)
-
-
--- EVENT: Shutdown - Cleanup
-mp.register_event("shutdown", function()
-    print("Cleaning up...")
-    -- Kill the specific listener process
-    os.execute("pkill -f " .. server_script)
-    -- Remove the socket file so it's fresh for next time
-    os.remove("/tmp/mpv_ai_socket")
-    os.remove(temp_frame)
-end)
 
 
 mp.observe_property("vf", "native", function(name, value)
@@ -513,6 +449,44 @@ local function adjust_video()
 
     auto_crop()
 end
+
+
+-- FUNCTION TO START THE SERVER
+-- Simple check to see if we should start the server
+print("Starting '" .. APP_NAME .. "' version " .. APP_VERSION)
+if socket_check ~= 0 then
+    print("Starting Python AI Server...")
+    mp.command_native_async({ name = "subprocess", args = { python_path, server_script }, detach = true })
+else
+    print("AI Server already running, connecting...")
+end
+
+
+-- EVENT: file loaded
+mp.register_event("file-loaded", function()
+    video_path = mp.get_property("path") -- get file path
+
+    if has_trigger(video_path, TRIGGER_KEYWORD) then
+        ai_enabled = true
+        OSD_ai_message("Rotation ACTIVE (Keyword detected)", 3000)
+        print("Rotation ACTIVE (Keyword detected)")
+    else
+        print("No keyword found in filename.")
+    end
+
+    sync_with_smplayer(video_path)
+end)
+
+
+-- EVENT: Shutdown - Cleanup
+mp.register_event("shutdown", function()
+    print("Cleaning up...")
+    -- Kill the specific listener process
+    os.execute("pkill -f " .. server_script)
+    -- Remove the socket file so it's fresh for next time
+    os.remove("/tmp/mpv_ai_socket")
+    os.remove(temp_frame)
+end)
 
 
 -- AI Rotation: High frequency (e.g., 5s)
