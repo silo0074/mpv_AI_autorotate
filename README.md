@@ -1,6 +1,7 @@
 # mpv AI Auto-Rotate
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/silo0074/mpv_AI_autorotate/blob/main/LICENSE)
 
 A smart `mpv` script that uses a machine learning model to automatically detect and correct the orientation of sideways or upside-down videos. It also features automatic black bar cropping and integration with SMPlayer.
 
@@ -105,3 +106,9 @@ The workflow is as follows:
 * Hardware decoding: **Options** -> **Preferences** -> **Performance** -> **Decoding** and select `auto-copy`. Because filters like rotation cannot be applied directly on the GPU, `auto-copy` tells mpv to copy the decoded frame back to system memory (CPU) to apply the filter before displaying it. This is necessary for this script to function correctly with hardware decoding. If you don't need filters then it is more efficient to just use `auto`, or `nvdec` if you have an NVidia card or anything else without the copy subfix.
 * If video doesn't show or have other issues, use OpenGL by placing `--gpu-api=opengl` in Options field under **Options** -> **Preferences** -> **Advanced** -> **MPlayer/mpv**.
 * If you notice video tearing it can be caused by the video FPS not matching the display refresh rate. If you have an NVidia card, try to enable `Force Full Composition Pipeline` in `NVidia Settings` under **X Server Display Configuration** -> **Advanced**.
+
+## ❤️ Donations
+
+<a href="https://www.buymeacoffee.com/liviuistrate" target="_blank">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60px" width="217px">
+</a>
