@@ -13,8 +13,6 @@ A smart `mpv` script that uses a machine learning model to automatically detect 
 * [Installation](#installation)
 * [Usage](#usage)
 * [SMPlayer Tips](#smplayer-tips)
-* [AI Model & Developer Notes](#ai-model--developer-notes)
-* [Troubleshooting](#troubleshooting)
 
 ---
 
