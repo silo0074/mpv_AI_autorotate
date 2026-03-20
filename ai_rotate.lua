@@ -184,7 +184,7 @@ local function auto_crop()
 
     -- Use 'pre' to ensure we look at the RAW frame before any existing crops
     -- Use 'no-osd' to keep the screen clean
-    mp.command('no-osd vf pre @my_cropdetect:lavfi=[cropdetect=20/255:2]')
+    mp.command('no-osd vf pre @my_cropdetect:lavfi=[cropdetect=5/255:2]')
 
     mp.add_timeout(0.1, function()
         -- Try label-specific metadata first (Most accurate)

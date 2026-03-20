@@ -14,6 +14,7 @@ A smart `mpv` script that uses a machine learning model to automatically detect 
 * [Installation](#installation)
 * [Usage](#usage)
 * [SMPlayer Tips](#smplayer-tips)
+* [Donations](#donations)
 
 ---
 
@@ -107,7 +108,7 @@ The workflow is as follows:
 * If video doesn't show or have other issues, use OpenGL by placing `--gpu-api=opengl` in Options field under **Options** -> **Preferences** -> **Advanced** -> **MPlayer/mpv**.
 * If you notice video tearing it can be caused by the video FPS not matching the display refresh rate. If you have an NVidia card, try to enable `Force Full Composition Pipeline` in `NVidia Settings` under **X Server Display Configuration** -> **Advanced**.
 
-## ❤️ Donations
+## <a id="donations"></a>☕️ Donations
 
 <a href="https://www.buymeacoffee.com/liviuistrate" target="_blank">
   <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60px" width="217px">
