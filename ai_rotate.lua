@@ -2,15 +2,36 @@
 -------------------------------- NOTES ------------------------------------------------------
 -- SMplayer 25+ is buggy. After cropping or applying rotation, the aspect ratio will be wrong.
 -- Use version 24.5
+-- Update: version 25.6.0 (revision 10403) works.
+
+-- INSTALLING MODULES:
+-- # 1. Create the venv (without system site packages for total isolation)
+-- python3 -m venv env
+
+-- # 2. Activate it
+-- source env/bin/activate
+
+-- # 3. Install everything from the file
+-- pip install -r requirements.txt
 
 -- DEBUGGING:
 -- mpv --geometry=100%x100% --no-keepaspect-window --scripts=/path_to/mpv_ai_autorotate/ai_rotate.lua video.mkv
 ---------------------------------------------------------------------------------------------
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 APP_NAME = "mpv AI Auto-Rotate"
 
--- Start the Python server automatically when mpv opens
+-- Check if we are in a venv, otherwise use system python
 local python_path = "/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/env/bin/python3"
+local f = io.open(python_path, "r")
+if f then 
+    f:close() 
+else 
+    python_path = "python3" -- Fallback to system python
+end
+
+print("DEBUG: Using Python path: " .. python_path)
+
+-- Start the Python server automatically when mpv opens
 -- local python_path = "/usr/bin/python3" -- or your venv path
 local server_script = "/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/ai_listener.py"
 local rotations = { [0] = 0, [1] = 90, [2] = 180, [3] = 270 }
@@ -20,6 +41,7 @@ local osd_timer = nil
 local last_w, last_h = 0, 0
 local video_path = nil
 local is_processing = false
+local pause_history = {}
 local ai_enabled = false
 local cropping_active = false
 local ini_rotation = false
@@ -53,6 +75,7 @@ local function OSD_display_filters()
         for _, filter in ipairs(vf_table) do
             if filter.label == "applied_crop" then
                 cropping_active = true
+                print("DEBUG: applied_crop filter label found")
                 break
             end
         end
@@ -177,16 +200,21 @@ local function auto_crop()
     local video_w = mp.get_property_number("video-params/w")
     local video_h = mp.get_property_number("video-params/h")
 
-    -- If the video is rotated 90/270, we must swap our reference width/height
-    if current_angle == 90 or current_angle == 270 then
-        video_w, video_h = video_h, video_w
-    end
+    -- -- If the video is rotated 90/270, we must swap our reference width/height
+    -- if current_angle == 90 or current_angle == 270 then
+    --     video_w, video_h = video_h, video_w
+    -- end
 
     -- Use 'pre' to ensure we look at the RAW frame before any existing crops
     -- Use 'no-osd' to keep the screen clean
-    mp.command('no-osd vf pre @my_cropdetect:lavfi=[cropdetect=5/255:2]')
+    -- In cropdetect=limit:round:reset, the first value (limit) is the intensity threshold. 
+    -- 5 is extremely low; digital noise in a "black" bar often exceeds this, causing the filter 
+    -- to think the bar is part of the actual image.
+    mp.command('no-osd vf pre @my_cropdetect:lavfi=[cropdetect=16/255:2]')
 
-    mp.add_timeout(0.1, function()
+    mp.add_timeout(0.2, function()
+        print("---------------------------------")
+
         -- Try label-specific metadata first (Most accurate)
         local metadata = mp.get_property_native("vf-metadata/my_cropdetect")
 
@@ -211,10 +239,15 @@ local function auto_crop()
         cropping_active = false
 
         if w and h then
+            print("DEBUG: Detected W: " .. w .. " vs Video W: " .. video_w)
+            print("DEBUG: Detected H: " .. h .. " vs Video H: " .. video_h)
+
             -- Check if crop is essentially the full container size (margin of 10px)
             local is_full_frame = math.abs(w - video_w) < 10 and math.abs(h - video_h) < 10
 
             if is_full_frame then
+                print("DEBUG: auto crop is_full_frame")
+
                 if last_w ~= 0 then
                     print("Video is full frame. Removing crop.")
                     mp.command("no-osd vf remove @applied_crop")
@@ -226,6 +259,9 @@ local function auto_crop()
                 local diff_w = math.abs(w - last_w)
                 local diff_h = math.abs(h - last_h)
 
+                print("DEBUG: auto crop diff_w: " .. diff_w)
+                print("DEBUG: auto crop diff_h: " .. diff_h)
+
                 if diff_w > 20 or diff_h > 20 then
                     print(string.format("Crop Applied: %dx%d at %d,%d", w, h, x, y))
                     mp.command(string.format("no-osd vf pre @applied_crop:crop=%s:%s:%s:%s", w, h, x, y))
@@ -235,8 +271,8 @@ local function auto_crop()
                 end
             end
 
-            local diff_w = math.abs(w - last_w)
-            local diff_h = math.abs(h - last_h)
+            -- local diff_w = math.abs(w - last_w)
+            -- local diff_h = math.abs(h - last_h)
 
             -- Check for sanity (don't crop to a tiny dot) and threshold
             -- if not is_full_frame and (diff_w > 20 or diff_h > 20) then
@@ -357,6 +393,28 @@ mp.observe_property("vf", "native", function(name, value)
         mp.msg.info("SMPlayer cleared rotation successfully. Syncing script state.")
         current_angle = 0
         OSD_display_filters()
+    end
+end)
+
+
+mp.observe_property("pause", "bool", function(name, paused)
+    local now = mp.get_time()
+    table.insert(pause_history, now)
+
+    print("DEBUG: pause detected: " .. now)
+
+    -- Keep only timestamps from the last 5 seconds
+    while #pause_history > 0 and now - pause_history[1] > 5 do
+        table.remove(pause_history, 1)
+    end
+
+    -- If we detect 3 toggles (state changes) in the window
+    if #pause_history >= 6 then
+        print("DEBUG: AI rotation toggled using pause gesture")
+        ai_enabled = not ai_enabled
+        local status = ai_enabled and "ENABLED" or "DISABLED"
+        OSD_ai_message("AI Mode: " .. status, 3000)
+        pause_history = {} -- Reset history to prevent immediate re-trigger
     end
 end)
 
@@ -493,6 +551,4 @@ end)
 mp.add_periodic_timer(5, check_orientation)
 
 -- Video adjustment: Low frequency (e.g., 20s)
-mp.add_periodic_timer(10, adjust_video)
-
-
+mp.add_periodic_timer(5, adjust_video)

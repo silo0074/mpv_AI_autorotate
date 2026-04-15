@@ -1,15 +1,28 @@
 
 import sys, site, os
 
-# --- CONFIG ---
-SOCKET_PATH = '/tmp/mpv_ai_socket'
+# --- DYNAMIC CONFIG ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SOCKET_PATH = '/tmp/mpv_ai_socket'
 MODEL_PATH = os.path.join(SCRIPT_DIR, 'orientation_model_v2_0.9882.onnx')
-VENV_PATH = os.path.join(SCRIPT_DIR, 'env/lib/python3.13/site-packages')
 INI_BASE_PATH = os.path.expanduser("~/.config/smplayer/file_settings/")
-site.addsitedir(VENV_PATH)
 
-HISTORY_SIZE = 3
+# Handle Virtual Environment Versioning
+# Automatically detects if it's 3.14, 3.15, etc.
+# If using python -m venv env --system-site-packages, 
+# you don't need to manually calculate py_ver and use site.addsitedir anymore. 
+# Python will find the libraries automatically.
+py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+VENV_PATH = os.path.join(SCRIPT_DIR, 'env/lib', py_ver, 'site-packages')
+site.addsitedir(VENV_PATH)
+# Also ensure system paths are checked for the OpenVINO bridge
+site.addsitedir(f"/usr/lib/{py_ver}/site-packages")
+
+print(f"DEBUG: Python version: {py_ver}")
+print(f"DEBUG: Virtual environment path: {VENV_PATH}")
+
+# CONFIG
+HISTORY_SIZE = 2
 
 import numpy as np
 import cv2
@@ -32,35 +45,58 @@ options.intra_op_num_threads = 4
 options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
-# OpenVINO specific GPU optimizations
-provider_options = [{
-    'device_type': 'GPU',
-    'cache_dir': '/tmp/ov_cache', # Saves compiled model to prevent Broken Pipe on startup
-    'num_streams': '1'            # Best for latency in 4-second interval checks
-}]
+# --- Dynamic Provider Selection ---
+available_providers = ort.get_available_providers()
+print(f"\nDEBUG: Available providers: {available_providers}")
 
+if 'OpenVINOExecutionProvider' in available_providers:
+    print("Using OpenVINO (GPU) acceleration.")
+    providers = [('OpenVINOExecutionProvider', {
+        'device_type': 'GPU',
+        'cache_dir': '/tmp/ov_cache',
+        'num_streams': '1'
+    })]
+else:
+    print("OpenVINO not found or incompatible. Falling back to CPU.")
+    providers = ['CPUExecutionProvider']
 
+# Initialize session with the best available provider
 try:
-    # REMOVE CUDA for a moment to verify stability
-    # Use 'CPUExecutionProvider' with internal optimizations
-    # session = ort.InferenceSession(
-    #     MODEL_PATH,
-    #     # sess_options=options,
-    #     providers=['OpenVINOExecutionProvider']
-    # )
-
-    session = ort.InferenceSession(
-        MODEL_PATH,
-        sess_options=options,
-        providers=['OpenVINOExecutionProvider'],
-        provider_options=provider_options
-    ) # Forces Intel iGPU
-
+    session = ort.InferenceSession(MODEL_PATH, options, providers=providers)
     input_name = session.get_inputs()[0].name
-    sys.stderr.write(f"\n--- AI ACTIVE ON: {session.get_providers()[0]} ---")
 except Exception as e:
-    sys.stderr.write(f"\nAI LOAD ERROR: {e}")
-    sys.exit(1)
+    print(f"Provider failed, forcing CPU fallback: {e}")
+    session = ort.InferenceSession(MODEL_PATH, options, providers=['CPUExecutionProvider'])
+
+# OpenVINO specific GPU optimizations
+# provider_options = [{
+#     'device_type': 'GPU',
+#     'cache_dir': '/tmp/ov_cache', # Saves compiled model to prevent Broken Pipe on startup
+#     'num_streams': '1'            # Best for latency in 4-second interval checks
+# }]
+#
+#
+# try:
+#     # REMOVE CUDA for a moment to verify stability
+#     # Use 'CPUExecutionProvider' with internal optimizations
+#     # session = ort.InferenceSession(
+#     #     MODEL_PATH,
+#     #     # sess_options=options,
+#     #     providers=['OpenVINOExecutionProvider']
+#     # )
+#
+#     session = ort.InferenceSession(
+#         MODEL_PATH,
+#         sess_options=options,
+#         providers=['OpenVINOExecutionProvider'],
+#         provider_options=provider_options
+#     ) # Forces Intel iGPU
+#
+#     input_name = session.get_inputs()[0].name
+#     sys.stderr.write(f"\n--- AI ACTIVE ON: {session.get_providers()[0]} ---")
+# except Exception as e:
+#     sys.stderr.write(f"\nAI LOAD ERROR: {e}")
+#     sys.exit(1)
 
 
 def get_smplayer_hash(filename):
@@ -260,7 +296,7 @@ def get_stable_prediction(header_bytes):
         return str(stable_idx)
 
     except Exception as e:
-        print(f"SOCKET: Prediction Error: {e}")
+        print(f"\nSOCKET: Prediction Error: {e}")
         return "0"
 
 
