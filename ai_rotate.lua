@@ -14,10 +14,14 @@
 -- # 3. Install everything from the file
 -- pip install -r requirements.txt
 
+-- INSTALL and INITIALIZE git-lfs
+-- sudo pacman -S git-lfs
+-- git lfs install
+
 -- DEBUGGING:
 -- mpv --geometry=100%x100% --no-keepaspect-window --scripts=/path_to/mpv_ai_autorotate/ai_rotate.lua video.mkv
 ---------------------------------------------------------------------------------------------
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 APP_NAME = "mpv AI Auto-Rotate"
 
 -- Check if we are in a venv, otherwise use system python
