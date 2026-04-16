@@ -3,7 +3,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://github.com/silo0074/mpv_AI_autorotate/blob/main/LICENSE)
 
-A smart `mpv` script that uses a machine learning model to automatically detect and correct the orientation of sideways or upside-down videos. It also features automatic black bar cropping and integration with SMPlayer.
+A smart `mpv` script that uses a machine learning model to automatically detect and correct the orientation of sideways or upside-down videos. It also features automatic black bar cropping and integration with SMPlayer to restore saved rotation which SMplayer doesn't do when using hardware acceleration in copy mode.
 
 ---
 
@@ -26,9 +26,11 @@ Most of the time when doing tutorials I film using multiple video segments that 
 
 I am using SMplayer version 24.5.0 since versions 25.x and newer have a regression where rotating a video (either manually or via a script) results in an incorrect aspect ratio. The window geometry does not update correctly, causing the video to appear stretched or squashed.
 
+Update: tried the AppImage version 25.6.0 (revision 10403) and the aspect ration issue when rotating a video is solved.
+
 This project is based on this AI model: [deep-image-orientation-detection](https://github.com/duartebarbosadev/deep-image-orientation-detection) by [duartebarbosadev](https://github.com/duartebarbosadev). You can use any model you want but it has to be specifically trained to detect orientation. A classification model that only detects objects won't work. The folder `deep-image-orientation-detection` is a clone of the above project with a modified version of `convert_to_onnx.py` where I modified `opset_version` to 11 to be compatible with my older NVidia card GTX 950. The model `orientation_model_v2_0.9882.pth` was downloaded from the [Releases](https://github.com/duartebarbosadev/deep-image-orientation-detection/releases) section where you can also download the .onnx version which is much more efficient. Since my graphic card is older, the onnx model didn't work for me so I used `convert_to_onnx.py` to convert the .pth to .onnx which are the `orientation_model_v2_0.9882.onnx` and `orientation_model_v2_0.9882.onnx.data` files in the root folder. If desired the model can be fine-tuned on more data sets.
 
-In the `ai_listener.py` the model is loaded using `OpenVINOExecutionProvider` to use the Intel GPU but I believe it still uses my NVidia card but using `OpenVINOExecutionProvider` makes it more compatible with older cards.
+In the `ai_listener.py` the model is loaded using `OpenVINOExecutionProvider` to use the Intel GPU but I believe it still uses my NVidia card but using `OpenVINOExecutionProvider` makes it more compatible with older cards. Running the model on CPU also works since is not a very resource demanding model.
 
 If you want to learn a few basic concepts about artificial intelligence I recommend reading this article: [Correcting Image Orientation Using Convolutional Neural Networks](https://d4nst.github.io/2017/01/12/image-orientation/).
 
@@ -40,7 +42,7 @@ The system is composed of two main parts:
 
 The workflow is as follows:
 1.  When you open a video in `mpv` or `SMplayer` which uses `mpv`, the Lua script checks if the filename contains a trigger keyword (default: `rotate`).
-2.  If the keyword is found, the AI mode is activated. The script automatically starts the Python backend if it's not already running.
+2.  If the keyword is found, the AI mode is activated. The script automatically starts the Python backend if it's not already running. The AI rotation can also be toggled by toggling the pause 3 times withing 5 seconds.
 3.  Periodically, the Lua script captures a raw video frame and sends it to the Python server.
 4.  The Python server receives the frame, preprocesses it (resizing with letterboxing, normalization), and feeds it into the orientation detection model.
 5.  The model predicts the necessary rotation (0°, 90°, 180°, or 270°). 0 means no rotation is needed.
@@ -74,6 +76,8 @@ The workflow is as follows:
     ```bash
     python3 -m venv env
     source env/bin/activate
+    pip install -r requirements.txt
+    or
     pip install numpy opencv-python onnxruntime-openvino
     ```
 
