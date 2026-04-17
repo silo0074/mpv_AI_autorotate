@@ -40,6 +40,7 @@ print("DEBUG: Using Python path: " .. python_path)
 local server_script = "/mnt/D_TOSHIBA_S300/Projects/mpv_ai_autorotate/ai_listener.py"
 local rotations = { [0] = 0, [1] = 90, [2] = 180, [3] = 270 }
 local TRIGGER_KEYWORD = "rotate" -- Matches "rotate" in filename
+local TRIGGER_KEYWORD_CROP = "crop"
 local current_angle = 0
 local osd_timer = nil
 local last_w, last_h = 0, 0
@@ -47,6 +48,7 @@ local video_path = nil
 local is_processing = false
 local pause_history = {}
 local ai_enabled = false
+local cropping_enabled = false
 local cropping_active = false
 local ini_rotation = false
 
@@ -60,41 +62,47 @@ local socket_check = os.execute("test -S /tmp/mpv_ai_socket")
 
 
 local function OSD_display_filters()
-	-- Determine the top line (AI vs R)
-	local status_text = "R"
+	local ass_data = "{\\an7}{\\fs5}{\\b1}{\\1c&H00FF00&}"
+    local rotation_text = ""
 
-	if ai_enabled then
-		status_text = "AI"
-	end
+    -- Determine if we should show the rotation part
+    -- Logic: Show if angle > 0 OR if it's 0 but AI is enabled (to show 'AI0')
+    -- If you want AI0 to also be hidden, change 'if ai_enabled' to 'if ai_enabled and current_angle ~= 0'
+    if current_angle ~= 0 or ai_enabled then
+        local label = ai_enabled and "AI" or "R"
+        rotation_text = string.format("%s%d", label, current_angle)
+    end
 
-	local ass_data = string.format("{\\an7}{\\fs5}{\\b1}{\\1c&H00FF00&}%s%d", status_text, current_angle)
+    -- Update ass_data with the rotation text (might be empty "")
+    ass_data = ass_data .. rotation_text
 
-	if current_angle == 0 and ai_enabled == false then
-		ass_data = ""
-	end
+	-- Check if Cropping is active via property
+    -- local vf_table = mp.get_property_native("vf")
+    -- cropping_active = false
+    -- if vf_table then
+    --     for _, filter in ipairs(vf_table) do
+    --         if filter.label == "applied_crop" then
+    --             cropping_active = true
+    --             break
+    --         end
+    --     end
+    -- end
 
-	-- Check if Cropping is active
-	-- We look for the label '@applied_crop' in the current 
-	-- filter list also in case SMplayer clears it
-	local vf_table = mp.get_property_native("vf")
-	cropping_active = false
+    -- Append CR on a new line if active
+    if cropping_active then
+        -- If rotation_text was empty, we don't need the \N (new line) 
+        -- but keeping it usually doesn't hurt in top-left alignment (\an7)
+        -- local separator = (rotation_text ~= "") and "\\N" or ""
+        local separator = "\\N"
+        ass_data = ass_data .. separator .. "CR"
+    end
 
-	if vf_table then
-		for _, filter in ipairs(vf_table) do
-			if filter.label == "applied_crop" then
-				cropping_active = true
-				break
-			end
-		end
-	end
-
-	-- If cropping is active, append CR on a new line (\N)
-	if cropping_active then
-		-- \N is the standard ASS tag for a forced line break
-		ass_data = ass_data .. "\\NCR"
-	end
-
-	mp.set_osd_ass(0, 0, ass_data) -- 0,0 means "use window resolution"
+    -- If both are empty, clear the OSD, otherwise display
+    if rotation_text == "" and not cropping_active then
+        mp.set_osd_ass(0, 0, "")
+    else
+        mp.set_osd_ass(0, 0, ass_data)
+    end
 end
 
 
@@ -352,18 +360,19 @@ end
 
 local function has_trigger(path, keyword)
 	local p = path:lower()
-	local k = keyword:lower() -- keyword would be "%rotate"
+	local k = keyword:lower()
 
 	-- We must escape the % in the keyword for the find command
-	local escaped_k = k:gsub("%%", "%%%%")
-	local start_idx, end_idx = p:find(escaped_k)
+	-- local escaped_k = k:gsub("%%", "%%%%")
+	-- local start_idx, end_idx = p:find(escaped_k)
+	local start_idx, end_idx = p:find(k)
 
 	if start_idx then
 		-- Character immediately after the keyword
 		local next_char = p:sub(end_idx + 1, end_idx + 1)
 
 		-- Boundary check: Is it a space, comma, closing bracket, or end of string?
-		local valid_boundaries = { [" "] = true, [","] = true, ["]"] = true, [""] = true, ["."] = true }
+		local valid_boundaries = { [" "] = true, [","] = true, ["]"] = true, [""] = true, ["."] = true, [")"] = true }
 
 		if valid_boundaries[next_char] then
 			return true
@@ -512,7 +521,9 @@ local function adjust_video()
 		return
 	end
 
-	auto_crop()
+	if cropping_enabled then
+		auto_crop()
+	end
 end
 
 
@@ -531,12 +542,22 @@ end
 mp.register_event("file-loaded", function()
 	video_path = mp.get_property("path") -- get file path
 
+	-- Enable AI rotation based on keyword
 	if has_trigger(video_path, TRIGGER_KEYWORD) then
 		ai_enabled = true
 		OSD_ai_message("Rotation ACTIVE (Keyword detected)", 3000)
 		print("Rotation ACTIVE (Keyword detected)")
 	else
-		print("No keyword found in filename.")
+		print("No keyword found in filename to activate AI rotation.")
+	end
+
+	-- Enable cropping based on keyword
+	if has_trigger(video_path, TRIGGER_KEYWORD_CROP) then
+		cropping_enabled = true
+		OSD_ai_message("Cropping ACTIVE (Keyword detected)", 3000)
+		print("Cropping ACTIVE (Keyword detected)")
+	else
+		print("No keyword found in filename to activate cropping.")
 	end
 
 	sync_with_smplayer(video_path)

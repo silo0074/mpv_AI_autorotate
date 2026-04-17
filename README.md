@@ -41,8 +41,8 @@ The system is composed of two main parts:
 2.  **`ai_listener.py`**: A Python backend server that performs the heavy lifting. It uses an ONNX machine learning model to classify video orientation.
 
 The workflow is as follows:
-1.  When you open a video in `mpv` or `SMplayer` which uses `mpv`, the Lua script checks if the filename contains a trigger keyword (default: `rotate`).
-2.  If the keyword is found, the AI mode is activated. The script automatically starts the Python backend if it's not already running. The AI rotation can also be toggled by toggling the pause 3 times withing 5 seconds.
+1.  When you open a video in `mpv` or `SMplayer` which uses `mpv`, the Lua script checks if the filename contains a trigger keyword (default: `rotate`, `crop`).
+2.  If the keyword is found, the AI rotation or automatic cropping is activated. The script automatically starts the Python backend if it's not already running. The AI rotation can also be toggled by toggling the pause 3 times withing 5 seconds.
 3.  Periodically, the Lua script captures a raw video frame and sends it to the Python server.
 4.  The Python server receives the frame, preprocesses it (resizing with letterboxing, normalization), and feeds it into the orientation detection model.
 5.  The model predicts the necessary rotation (0°, 90°, 180°, or 270°). 0 means no rotation is needed.
